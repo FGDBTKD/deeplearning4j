@@ -21,17 +21,17 @@ import org.deeplearning4j.nn.conf.graph.GraphVertex;
 import org.deeplearning4j.nn.conf.graph.LayerVertex;
 import org.deeplearning4j.nn.conf.graph.MergeVertex;
 import org.deeplearning4j.nn.conf.inputs.InputType;
-import org.deeplearning4j.nn.conf.layers.BaseLayer;
-import org.deeplearning4j.nn.conf.layers.BasePretrainNetwork;
-import org.deeplearning4j.nn.conf.layers.Layer;
-import org.deeplearning4j.nn.conf.layers.OutputLayer;
+import org.deeplearning4j.nn.conf.layers.*;
 import org.deeplearning4j.nn.conf.layers.samediff.SameDiffVertex;
 import org.deeplearning4j.nn.conf.memory.MemoryReport;
 import org.deeplearning4j.nn.conf.memory.NetworkMemoryReport;
-import org.deeplearning4j.nn.layers.samediff.SameDiffGraphVertex;
+import org.deeplearning4j.util.OutputLayerUtil;
 import org.nd4j.base.Preconditions;
 import org.nd4j.linalg.activations.Activation;
 import org.nd4j.linalg.activations.IActivation;
+import org.nd4j.linalg.dataset.api.MultiDataSet;
+import org.nd4j.linalg.dataset.api.iterator.DataSetIterator;
+import org.nd4j.linalg.lossfunctions.ILossFunction;
 import org.nd4j.shade.jackson.databind.JsonNode;
 import org.nd4j.shade.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -105,8 +105,11 @@ public class ComputationGraphConfiguration implements Serializable, Cloneable {
     protected int[] topologicalOrder;
     protected List<String> topologicalOrderStr;
 
+    @Getter @Setter
+    protected boolean legacyBatchScaledL2 = true;   //Default to legacy for pre 1.0.0-beta3 networks on deserialization
+
     /**
-     * @return JSON representation of configuration
+     * @return YAML representation of configuration
      */
     public String toYaml() {
         ObjectMapper mapper = NeuralNetConfiguration.mapperYaml();
@@ -120,9 +123,9 @@ public class ComputationGraphConfiguration implements Serializable, Cloneable {
     }
 
     /**
-     * Create a neural net configuration from json
+     * Create a neural net configuration from YAML
      *
-     * @param json the neural net configuration from json
+     * @param json the neural net configuration from YAML
      * @return {@link ComputationGraphConfiguration}
      */
     public static ComputationGraphConfiguration fromYaml(String json) {
@@ -262,6 +265,7 @@ public class ComputationGraphConfiguration implements Serializable, Cloneable {
         conf.inferenceWorkspaceMode = inferenceWorkspaceMode;
         conf.cacheMode = this.cacheMode;
         conf.defaultConfiguration.cacheMode = this.cacheMode;
+        conf.legacyBatchScaledL2 = this.legacyBatchScaledL2;
 
         return conf;
     }
@@ -403,7 +407,7 @@ public class ComputationGraphConfiguration implements Serializable, Cloneable {
         List<String> topologicalOrdering = topologicalOrdering();
 
         //Now, given the topological sort: do equivalent of forward pass
-        Map<String, InputType> vertexOutputs = new HashMap<>();
+        Map<String, InputType> vertexOutputs = new LinkedHashMap<>();
         int currLayerIdx = -1;
         for (String s : topologicalOrdering) {
             int inputIdx = networkInputs.indexOf(s);
@@ -597,7 +601,9 @@ public class ComputationGraphConfiguration implements Serializable, Cloneable {
         protected List<InputType> networkInputTypes = new ArrayList<>();
         protected List<String> networkOutputs = new ArrayList<>();
 
+        @Deprecated
         protected boolean pretrain = false;
+        @Deprecated
         protected boolean backprop = true;
         protected BackpropType backpropType = BackpropType.Standard;
         protected int tbpttFwdLength = DEFAULT_TBPTT_LENGTH;
@@ -609,6 +615,7 @@ public class ComputationGraphConfiguration implements Serializable, Cloneable {
 
         protected boolean allowDisconnected = false;
         protected boolean allowNoOutput = false;
+        protected boolean validateOutputConfig = true;
 
         public GraphBuilder(NeuralNetConfiguration.Builder globalConfiguration) {
             this.globalConfiguration = globalConfiguration;
@@ -649,8 +656,11 @@ public class ComputationGraphConfiguration implements Serializable, Cloneable {
         /**
          * Whether to do back prop (standard supervised learning) or not
          *
+         * @deprecated doesn't affect training any more. Use {@link org.deeplearning4j.nn.graph.ComputationGraph#fit(MultiDataSet)} when training for backprop.
+         *
          * @param backprop whether to do back prop or not
          */
+        @Deprecated
         public GraphBuilder backprop(boolean backprop) {
             this.backprop = backprop;
             return this;
@@ -659,8 +669,11 @@ public class ComputationGraphConfiguration implements Serializable, Cloneable {
         /**
          * Whether to do layerwise pre training or not
          *
+         * @deprecated doesn't affect training any more. Use {@link org.deeplearning4j.nn.graph.ComputationGraph#pretrain(MultiDataSetIterator)} when training for layerwise pretraining.
+         *
          * @param pretrain whether to do pre train or not
          */
+        @Deprecated
         public GraphBuilder pretrain(boolean pretrain) {
             this.pretrain = pretrain;
             return this;
@@ -686,7 +699,7 @@ public class ComputationGraphConfiguration implements Serializable, Cloneable {
          * but may be larger than it in some circumstances (but never smaller)<br>
          * Ideally your training data time series length should be divisible by this
          * This is the k1 parameter on pg23 of
-         * http://www.cs.utoronto.ca/~ilya/pubs/ilya_sutskever_phd_thesis.pdf
+         * <a href="http://www.cs.utoronto.ca/~ilya/pubs/ilya_sutskever_phd_thesis.pdf">http://www.cs.utoronto.ca/~ilya/pubs/ilya_sutskever_phd_thesis.pdf</a>
          *
          * @param forwardLength Forward length > 0, >= backwardLength
          */
@@ -699,7 +712,7 @@ public class ComputationGraphConfiguration implements Serializable, Cloneable {
          * When doing truncated BPTT: how many steps of backward should we do?<br>
          * Only applicable when doing backpropType(BackpropType.TruncatedBPTT)<br>
          * This is the k2 parameter on pg23 of
-         * http://www.cs.utoronto.ca/~ilya/pubs/ilya_sutskever_phd_thesis.pdf
+         * <a href="http://www.cs.utoronto.ca/~ilya/pubs/ilya_sutskever_phd_thesis.pdf">http://www.cs.utoronto.ca/~ilya/pubs/ilya_sutskever_phd_thesis.pdf</a>
          *
          * @param backwardLength <= forwardLength
          */
@@ -711,7 +724,7 @@ public class ComputationGraphConfiguration implements Serializable, Cloneable {
         /**
          * When doing truncated backpropagation through time (tBPTT): how many steps should we do?<br>
          * Only applicable when doing backpropType(BackpropType.TruncatedBPTT)<br>
-         * See: http://www.cs.utoronto.ca/~ilya/pubs/ilya_sutskever_phd_thesis.pdf
+         * See: <a href="http://www.cs.utoronto.ca/~ilya/pubs/ilya_sutskever_phd_thesis.pdf">http://www.cs.utoronto.ca/~ilya/pubs/ilya_sutskever_phd_thesis.pdf</a>
          *
          * @param tbpttLength length > 0
          */
@@ -820,12 +833,24 @@ public class ComputationGraphConfiguration implements Serializable, Cloneable {
                 if (networkOutputs.contains(vertexName)) {
                     networkOutputs.remove(vertexName);
                 }
+                Map<String,List<String>> newVertexInputs = new LinkedHashMap<>();
                 for (Map.Entry<String, List<String>> entry : this.vertexInputs.entrySet()) {
-                    List inputs = entry.getValue();
+                    List<String> inputs = entry.getValue();
                     if (inputs.contains(vertexName)) {
-                        inputs.remove(vertexName);
+                        //Some lists are not modifiable. So we'll make a new copy, minus the one to be removed
+                        List<String> newList = new ArrayList<>(inputs.size()-1);
+                        for(String s : inputs){
+                            if(!vertexName.equals(s)){
+                                newList.add(s);
+                            }
+                        }
+                        newVertexInputs.put(entry.getKey(), newList);
+                    } else {
+                        newVertexInputs.put(entry.getKey(), entry.getValue());
                     }
                 }
+                this.vertexInputs = newVertexInputs;
+
                 if (inputPreProcessors.containsKey(vertexName)) {
                     inputPreProcessors.remove(vertexName);
                 }
@@ -896,6 +921,7 @@ public class ComputationGraphConfiguration implements Serializable, Cloneable {
          * @param vertexInputs The inputs/activations to this GraphVertex
          */
         public GraphBuilder addVertex(String vertexName, GraphVertex vertex, String... vertexInputs) {
+            Preconditions.checkState(!vertices.containsKey(vertexName), "Cannot add vertex: a vertex with name \"%s\" already exists", vertexName);
             vertices.put(vertexName, vertex);
 
             //Automatically insert a MergeNode if this vertex can only take 1 input (layer vertices, etc)
@@ -932,6 +958,21 @@ public class ComputationGraphConfiguration implements Serializable, Cloneable {
          */
         public GraphBuilder allowNoOutput(boolean allowNoOutput){
             this.allowNoOutput = allowNoOutput;
+            return this;
+        }
+
+        /**
+         * Enabled by default. If enabled, the output layer configuration will be validated, to throw an exception on
+         * likely invalid outputs - such as softmax + nOut=1, or LossMCXENT + Tanh.<br>
+         * If disabled (false) no output layer validation will be performed.<br>
+         * Disabling this validation is not recommended, as the configurations that fail validation usually will
+         * not be able to learn correctly. However, the option to disable this validation is provided for advanced users
+         * when creating non-standard architectures.
+         *
+         * @param validate If true: validate output layer configuration. False: don't validate
+         */
+        public GraphBuilder validateOutputLayerConfig(boolean validate) {
+            this.validateOutputConfig = validate;
             return this;
         }
 
@@ -996,6 +1037,7 @@ public class ComputationGraphConfiguration implements Serializable, Cloneable {
 
             conf.defaultConfiguration = globalConfiguration.build();
             conf.getDefaultConfiguration().setPretrain(pretrain);
+            conf.setLegacyBatchScaledL2(globalConfiguration.isLegacyBatchScaledL2());
 
             //Add preprocessors that were defined separately to the Layers to which they belong
             for (Map.Entry<String, InputPreProcessor> entry : inputPreProcessors.entrySet()) {
@@ -1038,6 +1080,16 @@ public class ComputationGraphConfiguration implements Serializable, Cloneable {
             //Automatically add preprocessors, set nIns for CNN->dense transitions, etc
             if (!networkInputTypes.isEmpty()) {
                 conf.addPreProcessors(networkInputTypes.toArray(new InputType[networkInputs.size()]));
+            }
+
+            if(validateOutputConfig) {
+                //Validate output layer configurations...
+                for (Map.Entry<String, GraphVertex> e : conf.getVertices().entrySet()) {
+                    if (e.getValue() instanceof LayerVertex) {
+                        Layer l = ((LayerVertex) e.getValue()).getLayerConf().getLayer();
+                        OutputLayerUtil.validateOutputLayer(e.getKey(), l); //No-op for non output/loss layers
+                    }
+                }
             }
 
             return conf;

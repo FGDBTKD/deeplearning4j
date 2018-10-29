@@ -22,6 +22,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.nd4j.base.Preconditions;
 import org.nd4j.linalg.api.ndarray.INDArray;
 import org.nd4j.linalg.dataset.api.DataSetUtil;
+import org.nd4j.linalg.dataset.api.MultiDataSet;
 import org.nd4j.linalg.dataset.api.iterator.DataSetIterator;
 import org.nd4j.linalg.dataset.api.preprocessor.NormalizerStandardize;
 import org.nd4j.linalg.factory.Nd4j;
@@ -140,7 +141,7 @@ public class DataSet implements org.nd4j.linalg.dataset.api.DataSet {
      * @param data the data to merge
      * @return a single dataset
      */
-    public static DataSet merge(List<DataSet> data) {
+    public static DataSet merge(List<? extends org.nd4j.linalg.dataset.api.DataSet> data) {
         if (data.isEmpty())
             throw new IllegalArgumentException("Unable to merge empty dataset");
 
@@ -148,7 +149,7 @@ public class DataSet implements org.nd4j.linalg.dataset.api.DataSet {
         boolean anyFeaturesPreset = false;
         boolean anyLabelsPreset = false;
         boolean first = true;
-        for(DataSet ds : data){
+        for(org.nd4j.linalg.dataset.api.DataSet ds : data){
             if(ds.isEmpty()){
                 continue;
             }
@@ -171,7 +172,7 @@ public class DataSet implements org.nd4j.linalg.dataset.api.DataSet {
         INDArray[] featuresMasksToMerge = null;
         INDArray[] labelsMasksToMerge = null;
         int count = 0;
-        for (DataSet ds : data) {
+        for (org.nd4j.linalg.dataset.api.DataSet ds : data) {
             if(ds.isEmpty())
                 continue;
             featuresToMerge[count] = ds.getFeatures();
@@ -209,7 +210,7 @@ public class DataSet implements org.nd4j.linalg.dataset.api.DataSet {
         DataSet dataset = new DataSet(featuresOut, labelsOut, featuresMaskOut, labelsMaskOut);
 
         List<Serializable> meta = null;
-        for (DataSet ds : data) {
+        for (org.nd4j.linalg.dataset.api.DataSet ds : data) {
             if (ds.getExampleMetaData() == null || ds.getExampleMetaData().size() != ds.numExamples()) {
                 meta = null;
                 break;
@@ -1370,6 +1371,21 @@ public class DataSet implements org.nd4j.linalg.dataset.api.DataSet {
     @Override
     public boolean isEmpty() {
         return features == null && labels == null && featuresMask == null && labelsMask == null;
+    }
+
+    @Override
+    public MultiDataSet toMultiDataSet() {
+        INDArray f = getFeatures();
+        INDArray l = getLabels();
+        INDArray fMask = getFeaturesMaskArray();
+        INDArray lMask = getLabelsMaskArray();
+
+        INDArray[] fNew = f == null ? null : new INDArray[] {f};
+        INDArray[] lNew = l == null ? null : new INDArray[] {l};
+        INDArray[] fMaskNew = (fMask != null ? new INDArray[] {fMask} : null);
+        INDArray[] lMaskNew = (lMask != null ? new INDArray[] {lMask} : null);
+
+        return new org.nd4j.linalg.dataset.MultiDataSet(fNew, lNew, fMaskNew, lMaskNew);
     }
 
 

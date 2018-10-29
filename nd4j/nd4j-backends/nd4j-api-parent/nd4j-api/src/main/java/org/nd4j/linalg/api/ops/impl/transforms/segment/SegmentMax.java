@@ -20,6 +20,9 @@ import org.nd4j.autodiff.samediff.SDVariable;
 import org.nd4j.autodiff.samediff.SameDiff;
 import org.nd4j.linalg.api.ops.DynamicCustomOp;
 
+import java.util.Arrays;
+import java.util.List;
+
 /**
  * Segment max operation
  *
@@ -36,6 +39,16 @@ public class SegmentMax extends DynamicCustomOp {
     @Override
     public String opName(){
         return "segment_max";
+    }
+
+    @Override
+    public String tensorflowName() {
+        return "SegmentMax";
+    }
+
+    @Override
+    public List<SDVariable> doDiff(List<SDVariable> gradients){
+        return Arrays.asList(f().segmentMaxBp(arg(0), arg(1), gradients.get(0)));
     }
 
 }

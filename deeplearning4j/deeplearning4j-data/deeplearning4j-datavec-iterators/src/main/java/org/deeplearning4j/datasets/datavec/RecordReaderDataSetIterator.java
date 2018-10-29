@@ -49,7 +49,7 @@ import java.util.List;
  * Record reader dataset iterator. Takes a DataVec {@link RecordReader} as input, and handles the conversion to ND4J
  * DataSet objects as well as producing minibatches from individual records.<br>
  * <br>
- * Multiple constructors are available, though a {@link Builder} class is also available.<br>
+ * Multiple constructors are available, and a {@link Builder} class is also available.<br>
  * <br>
  * Example 1: Image classification, batch size 32, 10 classes<br>
  * <pre>
@@ -148,7 +148,8 @@ public class RecordReaderDataSetIterator implements DataSetIterator {
     }
 
     /**
-     * Main constructor for multi-label regression (i.e., regression with multiple outputs)
+     * Main constructor for multi-label regression (i.e., regression with multiple outputs). Can also be used for single
+     * output regression with labelIndexFrom == labelIndexTo
      *
      * @param recordReader      RecordReader to get data from
      * @param labelIndexFrom    Index of the first regression target

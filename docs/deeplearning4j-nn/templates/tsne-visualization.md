@@ -12,7 +12,7 @@ weight: 10
 
 While it can be used for any data, t-SNE (pronounced Tee-Snee) is only really meaningful with labeled data, which clarify how the input is clustering. Below, you can see the kind of graphic you can generate in DL4J with t-SNE working on MNIST data.
 
-![Alt text](./images/guide/tsne.png)
+![Alt text](/images/guide/tsne.png)
 
 Look closely and you can see the numerals clustered near their likes, alongside the dots.
 
@@ -34,11 +34,11 @@ public class TSNEStandardExample {
         log.info("Load & Vectorize data....");
         File wordFile = new ClassPathResource("words.txt").getFile();   //Open the file
         //Get the data of all unique word vectors
-        Pair&lt;InMemoryLookupTable,VocabCache&gt; vectors = WordVectorSerializer.loadTxt(wordFile);
+        Pair<InMemoryLookupTable,VocabCache> vectors = WordVectorSerializer.loadTxt(wordFile);
         VocabCache cache = vectors.getSecond();
         INDArray weights = vectors.getFirst().getSyn0();    //seperate weights of unique words into their own list
 
-        for(int i = 0; i &lt; cache.numWords(); i++)   //seperate strings of words into their own list
+        for(int i = 0; i < cache.numWords(); i++)   //seperate strings of words into their own list
             cacheList.add(cache.wordAtIndex(i));
 
         //STEP 3: build a dual-tree tsne to use later
@@ -69,4 +69,4 @@ public class TSNEStandardExample {
 Here is an image of the tsne-standard-coords.csv file plotted using gnuplot.
 
 
-![Tsne data plot](./images/guide/tsne_output.png)
+![Tsne data plot](/images/guide/tsne_output.png)

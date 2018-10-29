@@ -26,9 +26,6 @@ import org.deeplearning4j.datasets.datavec.RecordReaderMultiDataSetIterator;
 import org.deeplearning4j.datasets.iterator.IteratorMultiDataSetIterator;
 import org.deeplearning4j.datasets.iterator.impl.IrisDataSetIterator;
 import org.deeplearning4j.datasets.iterator.impl.ListDataSetIterator;
-import org.deeplearning4j.eval.Evaluation;
-import org.deeplearning4j.eval.IEvaluation;
-import org.deeplearning4j.eval.ROC;
 import org.deeplearning4j.nn.api.OptimizationAlgorithm;
 import org.deeplearning4j.nn.conf.ComputationGraphConfiguration;
 import org.deeplearning4j.nn.conf.NeuralNetConfiguration;
@@ -44,6 +41,9 @@ import org.deeplearning4j.spark.api.Repartition;
 import org.deeplearning4j.spark.api.TrainingMaster;
 import org.deeplearning4j.spark.impl.paramavg.ParameterAveragingTrainingMaster;
 import org.junit.Test;
+import org.nd4j.evaluation.IEvaluation;
+import org.nd4j.evaluation.classification.Evaluation;
+import org.nd4j.evaluation.classification.ROC;
 import org.nd4j.linalg.activations.Activation;
 import org.nd4j.linalg.api.ndarray.INDArray;
 import org.nd4j.linalg.dataset.DataSet;
@@ -100,7 +100,7 @@ public class TestSparkComputationGraph extends BaseSparkTest {
                                         new OutputLayer.Builder(LossFunctions.LossFunction.MCXENT).nIn(2).nOut(3)
                                                         .build(),
                                         "dense")
-                        .setOutputs("out").pretrain(false).backprop(true).build();
+                        .setOutputs("out").build();
 
         ComputationGraph cg = new ComputationGraph(config);
         cg.init();
@@ -136,7 +136,7 @@ public class TestSparkComputationGraph extends BaseSparkTest {
                                         LossFunctions.LossFunction.MCXENT).nIn(3).nOut(nOut)
                                                         .activation(Activation.SOFTMAX).build(),
                                         "0")
-                        .setOutputs("1").backprop(true).pretrain(false).build();
+                        .setOutputs("1").build();
 
         TrainingMaster tm = new ParameterAveragingTrainingMaster(true, numExecutors(), 1, 10, 1, 0);
 
@@ -215,7 +215,7 @@ public class TestSparkComputationGraph extends BaseSparkTest {
                                         LossFunctions.LossFunction.MCXENT).nIn(4).nOut(3).activation(Activation.SOFTMAX)
                                                         .build(),
                                         "0")
-                        .setOutputs("1").pretrain(false).backprop(true).build();
+                        .setOutputs("1").build();
 
         Nd4j.getRandom().setSeed(12345);
         ComputationGraph n1 = new ComputationGraph(conf.clone());

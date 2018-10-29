@@ -25,7 +25,7 @@ import org.deeplearning4j.nn.conf.layers.*;
 import org.deeplearning4j.nn.conf.memory.LayerMemoryReport;
 import org.deeplearning4j.nn.conf.memory.MemoryReport;
 import org.deeplearning4j.nn.conf.memory.NetworkMemoryReport;
-import org.deeplearning4j.nn.layers.AbstractLayer;
+import org.deeplearning4j.util.OutputLayerUtil;
 import org.nd4j.linalg.activations.Activation;
 import org.nd4j.linalg.activations.IActivation;
 import org.nd4j.linalg.factory.Nd4j;
@@ -60,6 +60,8 @@ public class MultiLayerConfiguration implements Serializable, Cloneable {
     protected BackpropType backpropType = BackpropType.Standard;
     protected int tbpttFwdLength = 20;
     protected int tbpttBackLength = 20;
+    @Getter @Setter
+    protected boolean legacyBatchScaledL2 = true;   //Default to legacy for pre 1.0.0-beta3 networks on deserialization
 
     @Getter
     @Setter
@@ -315,6 +317,7 @@ public class MultiLayerConfiguration implements Serializable, Cloneable {
             clone.inferenceWorkspaceMode = this.inferenceWorkspaceMode;
             clone.trainingWorkspaceMode = this.trainingWorkspaceMode;
             clone.cacheMode = this.cacheMode;
+            clone.legacyBatchScaledL2 = legacyBatchScaledL2;
 
             return clone;
 
@@ -389,7 +392,9 @@ public class MultiLayerConfiguration implements Serializable, Cloneable {
         protected List<NeuralNetConfiguration> confs = new ArrayList<>();
         protected double dampingFactor = 100;
         protected Map<Integer, InputPreProcessor> inputPreProcessors = new HashMap<>();
+        @Deprecated
         protected boolean pretrain = false;
+        @Deprecated
         protected boolean backprop = true;
         protected BackpropType backpropType = BackpropType.Standard;
         protected int tbpttFwdLength = DEFAULT_TBPTT_LENGTH;
@@ -399,6 +404,8 @@ public class MultiLayerConfiguration implements Serializable, Cloneable {
         protected WorkspaceMode trainingWorkspaceMode = WorkspaceMode.ENABLED;
         protected WorkspaceMode inferenceWorkspaceMode = WorkspaceMode.ENABLED;
         protected CacheMode cacheMode = CacheMode.NONE;
+        protected boolean validateOutputConfig = true;
+        protected boolean legacyBatchScaledL2;
 
         /**
          * Specify the processors.
@@ -419,9 +426,13 @@ public class MultiLayerConfiguration implements Serializable, Cloneable {
 
         /**
          * Whether to do back prop or not
+         *
+         * @deprecated doesn't affect training any more. Use {@link org.deeplearning4j.nn.multilayer.MultiLayerNetwork#fit(DataSetIterator)} when training for backprop.
+         *
          * @param backprop whether to do back prop or not
          * @return
          */
+        @Deprecated
         public Builder backprop(boolean backprop) {
             this.backprop = backprop;
             return this;
@@ -470,7 +481,7 @@ public class MultiLayerConfiguration implements Serializable, Cloneable {
 
         /**When doing truncated BPTT: how many steps should we do?<br>
          * Only applicable when doing backpropType(BackpropType.TruncatedBPTT)<br>
-         * See: http://www.cs.utoronto.ca/~ilya/pubs/ilya_sutskever_phd_thesis.pdf
+         * See: <a href="http://www.cs.utoronto.ca/~ilya/pubs/ilya_sutskever_phd_thesis.pdf">http://www.cs.utoronto.ca/~ilya/pubs/ilya_sutskever_phd_thesis.pdf</a>
          * @param bpttLength length > 0
          */
         public Builder tBPTTLength(int bpttLength) {
@@ -485,7 +496,7 @@ public class MultiLayerConfiguration implements Serializable, Cloneable {
          * but may be larger than it in some circumstances (but never smaller)<br>
          * Ideally your training data time series length should be divisible by this
          * This is the k1 parameter on pg23 of
-         * http://www.cs.utoronto.ca/~ilya/pubs/ilya_sutskever_phd_thesis.pdf
+         * <a href="http://www.cs.utoronto.ca/~ilya/pubs/ilya_sutskever_phd_thesis.pdf">http://www.cs.utoronto.ca/~ilya/pubs/ilya_sutskever_phd_thesis.pdf</a>
          * @param forwardLength Forward length > 0, >= backwardLength
          */
         public Builder tBPTTForwardLength(int forwardLength) {
@@ -496,7 +507,7 @@ public class MultiLayerConfiguration implements Serializable, Cloneable {
         /**When doing truncated BPTT: how many steps of backward should we do?<br>
          * Only applicable when doing backpropType(BackpropType.TruncatedBPTT)<br>
          * This is the k2 parameter on pg23 of
-         * http://www.cs.utoronto.ca/~ilya/pubs/ilya_sutskever_phd_thesis.pdf
+         * <a href="http://www.cs.utoronto.ca/~ilya/pubs/ilya_sutskever_phd_thesis.pdf">http://www.cs.utoronto.ca/~ilya/pubs/ilya_sutskever_phd_thesis.pdf</a>
          * @param backwardLength <= forwardLength
          */
         public Builder tBPTTBackwardLength(int backwardLength) {
@@ -506,9 +517,13 @@ public class MultiLayerConfiguration implements Serializable, Cloneable {
 
         /**
          * Whether to do pre train or not
+         *
+         * @deprecated doesn't affect training any more. Use {@link org.deeplearning4j.nn.multilayer.MultiLayerNetwork#pretrain(DataSetIterator)} when training for layerwise pretraining.
+         *
          * @param pretrain whether to do pre train or not
          * @return builder pattern
          */
+        @Deprecated
         public Builder pretrain(boolean pretrain) {
             this.pretrain = pretrain;
             return this;
@@ -523,6 +538,27 @@ public class MultiLayerConfiguration implements Serializable, Cloneable {
             this.inputType = inputType;
             return this;
         }
+
+        /**
+         * Enabled by default. If enabled, the output layer configuration will be validated, to throw an exception on
+         * likely invalid outputs - such as softmax + nOut=1, or LossMCXENT + Tanh.<br>
+         * If disabled (false) no output layer validation will be performed.<br>
+         * Disabling this validation is not recommended, as the configurations that fail validation usually will
+         * not be able to learn correctly. However, the option to disable this validation is provided for advanced users
+         * when creating non-standard architectures.
+         *
+         * @param validate If true: validate output layer configuration. False: don't validate
+         */
+        public Builder validateOutputLayerConfig(boolean validate) {
+            this.validateOutputConfig = validate;
+            return this;
+        }
+
+        public Builder legacyBatchScaledL2(boolean legacyBatchScaledL2){
+            this.legacyBatchScaledL2 = legacyBatchScaledL2;
+            return this;
+        }
+
 
         public MultiLayerConfiguration build() {
             //Validate BackpropType setting
@@ -605,12 +641,21 @@ public class MultiLayerConfiguration implements Serializable, Cloneable {
             conf.trainingWorkspaceMode = trainingWorkspaceMode;
             conf.inferenceWorkspaceMode = inferenceWorkspaceMode;
             conf.cacheMode = cacheMode;
+            conf.legacyBatchScaledL2 = legacyBatchScaledL2;
 
             Nd4j.getRandom().setSeed(conf.getConf(0).getSeed());
+
+            //Validate output layer configuration
+            if(validateOutputConfig) {
+                //Validate output layer configurations...
+                for(NeuralNetConfiguration n : conf.getConfs()){
+                    Layer l = n.getLayer();
+                    OutputLayerUtil.validateOutputLayer(l.getLayerName(), l); //No-op for non output/loss layers
+                }
+            }
+
             return conf;
 
         }
-
-
     }
 }

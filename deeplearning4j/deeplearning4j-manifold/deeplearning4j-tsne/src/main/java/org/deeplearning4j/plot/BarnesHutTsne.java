@@ -62,7 +62,7 @@ import static org.nd4j.linalg.ops.transforms.Transforms.sign;
 /**
  * Barnes hut algorithm for TSNE, uses a dual tree approximation approach.
  * Work based on:
- * http://lvdmaaten.github.io/tsne/
+ * <a href="http://lvdmaaten.github.io/tsne/">http://lvdmaaten.github.io/tsne/</a>
  * For hight dimensions, it's recommended to reduce the dimension up to 50 using another method (PCA or other)
  * @author Adam Gibson
  */
@@ -636,8 +636,6 @@ public class BarnesHutTsne implements Model {
 
                 sb.append(",");
                 sb.append(word);
-                sb.append(" ");
-
                 sb.append("\n");
                 write.write(sb.toString());
 
@@ -722,12 +720,12 @@ public class BarnesHutTsne implements Model {
     }
 
     @Override
-    public int numParams() {
+    public long numParams() {
         return 0;
     }
 
     @Override
-    public int numParams(boolean backwards) {
+    public long numParams(boolean backwards) {
         return 0;
     }
 

@@ -35,6 +35,7 @@ public abstract class BaseOutputLayer extends FeedForwardLayer {
 
     protected ILossFunction lossFn;
     protected boolean hasBias = true;
+    protected boolean legacyBatchScaledL2 = true;   //Default to legacy for pre 1.0.0-beta3 networks on deserialization
 
     protected BaseOutputLayer(Builder builder) {
         super(builder);
@@ -86,14 +87,23 @@ public abstract class BaseOutputLayer extends FeedForwardLayer {
 
         public Builder() {}
 
+        /**
+         * @param lossFunction Loss function for the output layer
+         */
         public Builder(LossFunction lossFunction) {
             lossFunction(lossFunction);
         }
 
+        /**
+         * @param lossFunction Loss function for the output layer
+         */
         public Builder(ILossFunction lossFunction) {
             this.lossFn = lossFunction;
         }
 
+        /**
+         * @param lossFunction Loss function for the output layer
+         */
         public T lossFunction(LossFunction lossFunction) {
             return lossFunction(lossFunction.getILossFunction());
         }
@@ -108,6 +118,9 @@ public abstract class BaseOutputLayer extends FeedForwardLayer {
             return (T)this;
         }
 
+        /**
+         * @param lossFunction Loss function for the output layer
+         */
         public T lossFunction(ILossFunction lossFunction) {
             this.lossFn = lossFunction;
             return (T) this;

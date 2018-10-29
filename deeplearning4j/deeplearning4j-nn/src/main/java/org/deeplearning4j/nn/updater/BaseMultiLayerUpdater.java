@@ -60,9 +60,10 @@ public abstract class BaseMultiLayerUpdater<T extends Model> implements Updater 
     protected Map<String, Trainable> layersByName;
     protected final List<UpdaterBlock> updaterBlocks;
     protected INDArray updaterStateViewArray;
+    protected boolean legacyBatchScaledL2;
 
-    public BaseMultiLayerUpdater(T network) {
-        this(network, null);
+    public BaseMultiLayerUpdater(T network, boolean legacyBatchScaledL2) {
+        this(network, null, legacyBatchScaledL2);
     }
 
     /**
@@ -70,8 +71,9 @@ public abstract class BaseMultiLayerUpdater<T extends Model> implements Updater 
      * @param network      Network to create the updater for
      * @param updaterState The updater state to use. Note: This array is used *directly* and isn't copied/cloned
      */
-    public BaseMultiLayerUpdater(T network, INDArray updaterState) {
+    public BaseMultiLayerUpdater(T network, INDArray updaterState, boolean legacyBatchScaledL2) {
         this.network = network;
+        this.legacyBatchScaledL2 = legacyBatchScaledL2;
         Trainable[] layers = getOrderedLayers();    //May also include vertices
 
         int updaterStateSize = 0;
@@ -211,6 +213,13 @@ public abstract class BaseMultiLayerUpdater<T extends Model> implements Updater 
      * @param viewArray The new updater state
      */
     public void setStateViewArray(INDArray viewArray) {
+        if(this.updaterStateViewArray == null){
+            if(viewArray == null)
+                return; //No op - for example, SGD and NoOp updater - i.e., no stored state
+            else {
+                throw new IllegalStateException("Attempting to set updater state view array with null value");
+            }
+        }
         if (this.updaterStateViewArray.length() != viewArray.length())
             throw new IllegalStateException("Invalid input: view arrays differ in length. " + "Expected length "
                             + this.updaterStateViewArray.length() + ", got length " + viewArray.length());
@@ -225,6 +234,17 @@ public abstract class BaseMultiLayerUpdater<T extends Model> implements Updater 
     @Override
     public INDArray getStateViewArray() {
         return updaterStateViewArray;
+    }
+
+    /**
+     * A synchronized version of {@link #getStateViewArray()} that duplicates the view array internally.
+     * This should be used in preference to {@link #getStateViewArray()} when the updater state is accessed in one
+     * thread while another thread is using the updater for training.
+     * @return A copy (duplicate) of the updater state
+     */
+    public synchronized INDArray getStateViewArrayCopy(){
+        Nd4j.getExecutioner().commit();
+        return updaterStateViewArray.dup();
     }
 
     @Override
@@ -243,7 +263,7 @@ public abstract class BaseMultiLayerUpdater<T extends Model> implements Updater 
      * @param iteration The current iteration (i.e., number of parameter updates so far)
      * @param batchSize The current minibatch size (number of examples)
      */
-    public void update(Gradient gradient, int iteration, int epoch, int batchSize, LayerWorkspaceMgr workspaceMgr) {
+    public synchronized void update(Gradient gradient, int iteration, int epoch, int batchSize, LayerWorkspaceMgr workspaceMgr) {
 
         //First: check if gradient is standard or external...
         //In a MultiLayerNetwork, the INDArray returned by .gradient() is always the standard full view array
@@ -276,6 +296,10 @@ public abstract class BaseMultiLayerUpdater<T extends Model> implements Updater 
             }
         }
 
+        if(!legacyBatchScaledL2 && isMiniBatch()){
+            divideByMinibatch(isExternal, gradient, batchSize);
+        }
+
         //PRE apply (gradient clipping, etc): done on a per-layer basis
         for (Map.Entry<String, Gradient> entry : layerGradients.entrySet()) {
             String layerName = entry.getKey();
@@ -284,10 +308,11 @@ public abstract class BaseMultiLayerUpdater<T extends Model> implements Updater 
             preApply(layer, layerGradients.get(layerName), iteration);
         }
 
-
         //Apply the updaters in blocks. This also applies LR and momentum schedules, L1 and L2
-
-        workspaceMgr.assertNotOpen(ArrayType.UPDATER_WORKING_MEM, "Updater working memory");
+        if(getClass() != LayerUpdater.class){
+            //OK for LayerUpdater as this is part of layerwise pretraining
+            workspaceMgr.assertNotOpen(ArrayType.UPDATER_WORKING_MEM, "Updater working memory");
+        }
         for (UpdaterBlock ub : updaterBlocks) {
             if (ub.skipDueToPretrainConfig()) {
                 //Should skip some updater blocks sometimes
@@ -305,18 +330,21 @@ public abstract class BaseMultiLayerUpdater<T extends Model> implements Updater 
             }
         }
 
-        //Divide by minibatch size if necessary
-        if (isMiniBatch()) {
-            //OK even with pretrain layers: their gradients will get modified during next backprop iteration
-            if (isExternal) {
-                gradient.gradient().divi(batchSize);
-            } else {
-                //Standard case
-                INDArray grad = getFlattenedGradientsView();
-                if(grad != null) {
-                    //May be null for nets with no parameters
-                    grad.divi(batchSize);
-                }
+        if(legacyBatchScaledL2 && isMiniBatch()){
+            divideByMinibatch(isExternal, gradient, batchSize);
+        }
+    }
+
+    protected void divideByMinibatch(boolean isExternal, Gradient gradient, int batchSize){
+        //OK even with pretrain layers: their gradients will get modified during next backprop iteration
+        if (isExternal) {
+            gradient.gradient().divi(batchSize);
+        } else {
+            //Standard case
+            INDArray grad = getFlattenedGradientsView();
+            if (grad != null) {
+                //May be null for nets with no parameters
+                grad.divi(batchSize);
             }
         }
     }
@@ -350,12 +378,16 @@ public abstract class BaseMultiLayerUpdater<T extends Model> implements Updater 
             case RenormalizeL2PerLayer:
                 if (layerGradientView != null) {
                     double l2 = layerGradientView.norm2Number().doubleValue();
+                    if (l2 == 0.0)
+                        l2 = 1e-5;  //Avoid 0/0 -> NaN
                     layerGradientView.divi(l2);
                 }
                 break;
             case RenormalizeL2PerParamType:
                 for (INDArray g : gradient.gradientForVariable().values()) {
                     double l2 = Nd4j.getExecutioner().execAndReturn(new Norm2(g)).getFinalResult().doubleValue();
+                    if (l2 == 0.0)
+                        l2 = 1e-5;  //Avoid 0/0 -> NaN
                     g.divi(l2);
                 }
                 break;

@@ -62,17 +62,17 @@ void gruCell(const std::vector<NDArray<T>*>& inArrs, NDArray<T>* h) {
     const int nU = h0->sizeAt(1);                // number of units
     
     // gates = sigmoid(x*Wx + h0*Wh + b)
-    NDArray<T> gates = sigmoid<T>(mmul(*x, (*Wx)({{},{0,2*nU}})) + mmul(*h0, (*Wh)({{},{0,2*nU}})) + (*b)({{0,2*nU}}));       // [bS, 2*nU] + [bS, 2*nU] + [1, 2*nU] = [bS, 2*nU]    
+    NDArray<T> gates = sigmoid<T>(mmul(*x, (*Wx)({0,0, 0,2*nU})) + mmul(*h0, (*Wh)({0,0, 0,2*nU})) + (*b)({0,2*nU}));       // [bS, 2*nU] + [bS, 2*nU] + [1, 2*nU] = [bS, 2*nU]    
     
     // reset gate
-    NDArray<T> r = gates({{}, {0, nU}});                     // [bS, nU]
+    NDArray<T> r = gates({0,0, 0,nU});                     // [bS, nU]
 
     // update gate
-    NDArray<T> u = gates({{}, {nU, 2*nU}});            // [bS, nU]
+    NDArray<T> u = gates({0,0, nU,2*nU});            // [bS, nU]
 
     // ◦ means element-wise product or so called Hadamard product
     // n = activation(x*Wx + (r◦h0)*Wh + b)
-    NDArray<T> n = activation<T>(mmul(*x, (*Wx)({{},{2*nU, 3*nU}})) + mmul((*h0)*r, (*Wh)({{},{2*nU,3*nU}})) + (*b)({{2*nU,3*nU}}));     // [bS, nU]
+    NDArray<T> n = activation<T>(mmul(*x, (*Wx)({0,0, 2*nU,3*nU})) + mmul((*h0)*r, (*Wh)({0,0, 2*nU,3*nU})) + (*b)({2*nU,3*nU}));     // [bS, nU]
 
     // current cell output
     h->assign( u * (*h0) + ((T)1. - u) * n );
@@ -98,8 +98,8 @@ void gruTimeLoop(const std::vector<NDArray<T>*>& inArrs, NDArray<T>* h) {
     // loop through time steps
     for (int t = 0; t < time; ++t) {
 
-        NDArray<T> xt = (*x)({{t,t+1}, {}, {}});
-        NDArray<T> ht = (*h)({{t,t+1}, {}, {}});
+        NDArray<T> xt = (*x)({t,t+1, 0,0, 0,0});
+        NDArray<T> ht = (*h)({t,t+1, 0,0, 0,0});
 
         helpers::gruCell<T>({&xt, &ht_1, Wx, Wh, b}, &ht);
         ht_1.assign(ht);    
@@ -132,22 +132,22 @@ void gruCellBP(const std::vector<NDArray<T>*>& inArrs, const std::vector<NDArray
 
     // ***** feed forward step ***** //    
     // gates = sigmoid(x*Wx + h0*Wh + b)
-    NDArray<T> gates = sigmoid<T>(mmul(*x, (*Wx)({{},{0,2*nU}})) + mmul(*h0, (*Wh)({{},{0,2*nU}})) + (*b)({{0,2*nU}}));       // [bS, 2*nU] + [bS, 2*nU] + [1, 2*nU] = [bS, 2*nU]    
+    NDArray<T> gates = sigmoid<T>(mmul(*x, (*Wx)({0,0, 0,2*nU})) + mmul(*h0, (*Wh)({0,0, 0,2*nU})) + (*b)({0,2*nU}));       // [bS, 2*nU] + [bS, 2*nU] + [1, 2*nU] = [bS, 2*nU]    
     // reset gate
-    NDArray<T> r = gates({{}, {0, nU}});               // [bS, nU]
+    NDArray<T> r = gates({0,0, 0, nU});               // [bS, nU]
     // update gate
-    NDArray<T> u = gates({{}, {nU, 2*nU}});            // [bS, nU]
+    NDArray<T> u = gates({0,0, nU, 2*nU});            // [bS, nU]
     // ◦ means element-wise product or so called Hadamard product
     // n = activation(x*Wx + (r◦h0)*Wh + b)
-    NDArray<T> n = activation<T>(mmul(*x, (*Wx)({{},{2*nU, 3*nU}})) + mmul((*h0)*r, (*Wh)({{},{2*nU,3*nU}})) + (*b)({{2*nU,3*nU}}));     // [bS, nU]
+    NDArray<T> n = activation<T>(mmul(*x, (*Wx)({0,0, 2*nU,3*nU})) + mmul((*h0)*r, (*Wh)({0,0, 2*nU,3*nU})) + (*b)({2*nU,3*nU}));     // [bS, nU]
 
     // ***** back prop step ***** // 
-    NDArray<T> Wxr  = (*Wx)({{}, {0,   nU}});
-    NDArray<T> Wxu  = (*Wx)({{}, {nU,  2*nU}});
-    NDArray<T> Wxn  = (*Wx)({{}, {2*nU,3*nU}});
-    NDArray<T> Whr  = (*Wh)({{}, {0,   nU}});
-    NDArray<T> Whu  = (*Wh)({{}, {nU,  2*nU}});
-    NDArray<T> Whn  = (*Wh)({{}, {2*nU,3*nU}});
+    NDArray<T> Wxr  = (*Wx)({0,0, 0,   nU});
+    NDArray<T> Wxu  = (*Wx)({0,0, nU,  2*nU});
+    NDArray<T> Wxn  = (*Wx)({0,0, 2*nU,3*nU});
+    NDArray<T> Whr  = (*Wh)({0,0, 0,   nU});
+    NDArray<T> Whu  = (*Wh)({0,0, nU,  2*nU});
+    NDArray<T> Whn  = (*Wh)({0,0, 2*nU,3*nU});
     NDArray<T> WxrT = Wxr.transp();
     NDArray<T> WxuT = Wxu.transp();
     NDArray<T> WxnT = Wxn.transp();
@@ -157,17 +157,17 @@ void gruCellBP(const std::vector<NDArray<T>*>& inArrs, const std::vector<NDArray
     NDArray<T> xT   = x->transp();
     NDArray<T> h0T  = h0->transp();
 
-    NDArray<T> dLdWxr = (*dLdWx)({{}, {0,     nU}});
-    NDArray<T> dLdWxu = (*dLdWx)({{}, {nU,  2*nU}});
-    NDArray<T> dLdWxn = (*dLdWx)({{}, {2*nU,3*nU}});
+    NDArray<T> dLdWxr = (*dLdWx)({0,0, 0,     nU});
+    NDArray<T> dLdWxu = (*dLdWx)({0,0, nU,  2*nU});
+    NDArray<T> dLdWxn = (*dLdWx)({0,0, 2*nU,3*nU});
 
-    NDArray<T> dLdWhr = (*dLdWh)({{}, {0,     nU}});    
-    NDArray<T> dLdWhu = (*dLdWh)({{}, {nU,  2*nU}});    
-    NDArray<T> dLdWhn = (*dLdWh)({{}, {2*nU,3*nU}});
+    NDArray<T> dLdWhr = (*dLdWh)({0,0, 0,     nU});    
+    NDArray<T> dLdWhu = (*dLdWh)({0,0, nU,  2*nU});    
+    NDArray<T> dLdWhn = (*dLdWh)({0,0, 2*nU,3*nU});
 
-    NDArray<T> dLdbr = (*dLdb)({{0,     nU}});
-    NDArray<T> dLdbu = (*dLdb)({{nU,  2*nU}});
-    NDArray<T> dLdbn = (*dLdb)({{2*nU,3*nU}});
+    NDArray<T> dLdbr = (*dLdb)({0,     nU});
+    NDArray<T> dLdbu = (*dLdb)({nU,  2*nU});
+    NDArray<T> dLdbn = (*dLdb)({2*nU,3*nU});
 
     NDArray<T> dhdu   = *h0  - n;               // [bS, nU]
     NDArray<T> dhdn   = (T)1 - u;               // [bS, nU]    
@@ -208,7 +208,62 @@ void gruCellBP(const std::vector<NDArray<T>*>& inArrs, const std::vector<NDArray
 
 }
 
+// //////////////////////////////////////////////////////////////////////////
+// FIXME - gruTimeLoopBP is not correct
+// template <typename T>
+// void gruTimeLoopBP(const std::vector<NDArray<T>*>& inArrs, const std::vector<NDArray<T>*>& outArrs) {
 
+//     NDArray<T>* x      = inArrs[0];                   // input [time, bS, iS]
+//     NDArray<T>* hi     = inArrs[1];                   // previous/initial cell output [bS, nU],  that is at previous time step t-1
+//     NDArray<T>* Wx     = inArrs[2];                   // input-to-hidden  weights, [iS, 3*nU] 
+//     NDArray<T>* Wh     = inArrs[3];                   // hidden-to-hidden weights, [nU, 3*nU]     
+//     NDArray<T>* b      = inArrs[4];                   // biases, [3*nU]
+//     NDArray<T>* dLdh   = inArrs[5];                   // gradient wrt output, [time, bS, nU], that is epsilon_next  
+
+//     NDArray<T>* dLdx   = outArrs[0];                  // gradient wrt x,  [time, bS, iS], that is epsilon
+//     NDArray<T>* dLdhi  = outArrs[1];                  // gradient wrt hi, [bS, nU]
+//     NDArray<T>* dLdWx  = outArrs[2];                  // gradient wrt Wx, [iS, 3*nU]
+//     NDArray<T>* dLdWh  = outArrs[3];                  // gradient wrt Wh, [nU, 3*nU]
+//     NDArray<T>* dLdb   = outArrs[4];                  // gradient wrt b,  [3*nU]
+    
+//     const Nd4jLong time = x->sizeAt(0);
+//     const Nd4jLong bS   = x->sizeAt(1);
+//     const Nd4jLong iS   = x->sizeAt(2);
+//     const Nd4jLong nU   = hi->sizeAt(1);    
+    
+//     NDArray<T> h(hi->ordering(), {time, bS, nU});      // feed forward output
+
+//     // first step, time = 0, feed forward    
+//     NDArray<T> x0 = (*x)({{0,1}, {}, {}});
+//     NDArray<T> h0 = h({{0,1}, {}, {}});
+//     helpers::gruCell<T>({&x0, hi, Wx, Wh, b}, &h0);
+
+//     // first step, time = 0, back prop
+//     NDArray<T> dLdx0 = (*dLdx)({{0,1}, {}, {}});    
+//     NDArray<T> dLdh0 = (*dLdh)({{0,1}, {}, {}});    
+//     helpers::gruCellBP<T>({&x0, hi, Wx, Wh, b, &dLdh0, nullptr, nullptr, nullptr}, {&dLdx0, dLdhi, dLdWx, dLdWh, dLdb});
+
+//     // loop through the rest time steps 
+//     for (Nd4jLong t = time-1; t > 0; --t) {        
+//     for (Nd4jLong t = 1; t < time; ++t) {        
+
+//         NDArray<T> xt    =    (*x)({{t,t+1}, {}, {}});
+//         NDArray<T> ht    =       h({{t,t+1}, {}, {}});
+//         NDArray<T> ht_1  =       h({{t-1,t}, {}, {}});
+//         NDArray<T> dLdxt = (*dLdx)({{t,t+1}, {}, {}});    
+//         NDArray<T> dLdht = (*dLdh)({{t,t+1}, {}, {}});    
+
+//         NDArray<T> dLdWxt_1 = dLdWx;
+//         NDArray<T> dLdWht_1 = dLdWh;
+//         NDArray<T> dLdbt_1  = dLdb;
+
+//         // feed forward, calculation of ht
+//         helpers::gruCell<T>({&xt, &ht_1, Wx, Wh, b}, &ht);
+
+//         // back prop
+//         helpers::gruCellBP<T>({&xt, &ht_1, Wx, Wh, b, &dLdht, &dLdWxt_1, &dLdWht_1, &dLdbt_1}, {&dLdxt, nullptr, dLdWx, dLdWh, dLdb});            
+//     }
+// }
 
 template void gruCell<float>(const std::vector<NDArray<float>*>& inArrs, NDArray<float>* h);
 template void gruCell<float16>(const std::vector<NDArray<float16>*>& inArrs, NDArray<float16>* h);

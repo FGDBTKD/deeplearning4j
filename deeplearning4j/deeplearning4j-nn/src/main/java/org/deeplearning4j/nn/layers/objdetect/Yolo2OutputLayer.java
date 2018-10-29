@@ -45,18 +45,20 @@ import org.nd4j.linalg.ops.transforms.Transforms;
 import org.nd4j.linalg.primitives.Pair;
 import org.deeplearning4j.nn.workspace.LayerWorkspaceMgr;
 import org.deeplearning4j.nn.workspace.ArrayType;
+import org.nd4j.linalg.util.ArrayUtil;
 
 import java.io.Serializable;
+import java.util.Arrays;
 import java.util.List;
 
 import static org.nd4j.linalg.indexing.NDArrayIndex.*;
 
 /**
  * Output (loss) layer for YOLOv2 object detection model, based on the papers:
- * YOLO9000: Better, Faster, Stronger - Redmon & Farhadi (2016) - https://arxiv.org/abs/1612.08242<br>
+ * YOLO9000: Better, Faster, Stronger - Redmon & Farhadi (2016) - <a href="https://arxiv.org/abs/1612.08242">https://arxiv.org/abs/1612.08242</a><br>
  * and<br>
  * You Only Look Once: Unified, Real-Time Object Detection - Redmon et al. (2016) -
- * http://www.cv-foundation.org/openaccess/content_cvpr_2016/papers/Redmon_You_Only_Look_CVPR_2016_paper.pdf<br>
+ * <a href="http://www.cv-foundation.org/openaccess/content_cvpr_2016/papers/Redmon_You_Only_Look_CVPR_2016_paper.pdf">http://www.cv-foundation.org/openaccess/content_cvpr_2016/papers/Redmon_You_Only_Look_CVPR_2016_paper.pdf</a>
  * <br>
  * This loss function implementation is based on the YOLOv2 version of the paper. However, note that it doesn't
  * currently support simultaneous training on both detection and classification datasets as described in the
@@ -148,6 +150,13 @@ public class Yolo2OutputLayer extends AbstractLayer<org.deeplearning4j.nn.conf.l
 
         // ----- Step 2: apply activation functions to network output activations -----
         //Reshape from [minibatch, B*(5+C), H, W] to [minibatch, B, 5+C, H, W]
+        long[] expInputShape = new long[]{mb, b*(5+c), h, w};
+        long[] newShape = new long[]{mb, b, 5+c, h, w};
+        long newLength = ArrayUtil.prodLong(newShape);
+        Preconditions.checkState(Arrays.equals(expInputShape, input.shape()), "Unable to reshape input - input array shape does not match" +
+                " expected shape. Expected input shape [minibatch, B*(5+C), H, W]=%s but got input of shape %ndShape. This may be due to an incorrect nOut (layer size/channels)" +
+                " for the last convolutional layer in the network. nOut of the last layer must be B*(5+C) where B is the number of" +
+                " bounding boxes, and C is the number of object classes. Expected B=%s from network configuration and C=%s from labels", expInputShape, input, b, c);
         INDArray input5 = input.dup('c').reshape('c', mb, b, 5+c, h, w);
         INDArray inputClassesPreSoftmax = input5.get(all(), all(), interval(5, 5+c), all(), all());
 
@@ -263,11 +272,11 @@ public class Yolo2OutputLayer extends AbstractLayer<org.deeplearning4j.nn.conf.l
 
         this.score = lambdaCoord * (positionLoss + sizeScaleLoss) +
                 confidenceLoss  +
-                classPredictionLoss +
-                fullNetworkL1 +
-                fullNetworkL2;
+                classPredictionLoss;
 
         this.score /= getInputMiniBatchSize();
+
+        this.score += fullNetworkL1 + fullNetworkL2;
 
         if(scoreOnly)
             return null;

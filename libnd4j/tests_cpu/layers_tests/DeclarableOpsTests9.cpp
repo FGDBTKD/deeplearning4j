@@ -1152,12 +1152,12 @@ TEST_F(DeclarableOpsTests9, clipbynorm_test12) {
     NDArray<double> temp = (x / norm2) * clip;    
 
     for (int j = 0; j < nOut; ++j) {
-        NDArray<double> yCol = y({{}, {j, j+1}});
+        NDArray<double> yCol = y({0,0, j,j+1});
         const double norm2Col = yCol.template reduceNumber<simdOps::Norm2<double>>();
         if (norm2Col <= clip) 
-            expect({{}, {j,j+1}}).assign(yCol);
+            expect({0,0, j,j+1}).assign(yCol);
         else 
-            expect({{}, {j,j+1}}).assign ( yCol * (clip / norm2Col) );
+            expect({0,0, j,j+1}).assign ( yCol * (clip / norm2Col) );
     }
     
     nd4j::ops::clipbynorm<double> op;
@@ -1246,8 +1246,8 @@ TEST_F(DeclarableOpsTests9, cumprod_bp_check_1) {
 
     x.linspace(1);
 
-    const OpArgsHolder<double> argsHolderFF({&x},         {}, {});
-    const OpArgsHolder<double> argsHolderBP({&x, &gradO}, {}, {});
+    const OpArgsHolder<double> argsHolderFF({&x},         {}, {0, 0});
+    const OpArgsHolder<double> argsHolderBP({&x, &gradO}, {}, {0, 0});
 
     nd4j::ops::cumprod<double> opFF;
     nd4j::ops::cumprod_bp<double> opBP;
@@ -1418,37 +1418,6 @@ TEST_F(DeclarableOpsTests9, cumprod_test2) {
     const bool isGradCorrect = GradCheck::checkGrad(opFF, opBP, argsHolderFF, argsHolderBP, {1, 1, 1, 1}, {1, 1},GradCheck::MEAN);
 
     ASSERT_TRUE(isGradCorrect);
-}
-
-////////////////////////////////////////////////////////////////////////////////
-TEST_F(DeclarableOpsTests9, cumprod_test3) {
-    
-    NDArray<double> inputC('c', {2, 2});
-    NDArray<double> axis(1.);
-
-//    NDArray<double> expFF('c', {3, 5}, {1.,   2.,   6.,    24.,   120., 6.,  42., 336.,  3024., 30240.,11., 132.,1716., 24024.,360360.});
-//    NDArray<double> expTF('c', {3, 5}, {1, 1, 2, 6, 24,1, 6, 42, 336, 3024,1, 11, 132, 1716, 24024});
-
-//    NDArray<double> expFT('c', {3, 5}, {120, 120, 60, 20, 5,30240, 5040, 720, 90, 10,360360, 32760, 2730, 210, 15});    //+++
-//    NDArray<double> expTT('c', {3, 5}, {120, 60, 20, 5, 1,5040, 720, 90, 10, 1,32760, 2730, 210, 15, 1});
-    NDArray<double> gradO('c', {2, 2});
-
-    int exclusive, reverse;    
-
-    //************************************//
-    exclusive = 0; reverse = 0;
-    inputC.linspace(1);
-//    const OpArgsHolder<double> argsHolderFF({&inputC, &axis}, {}, {exclusive, reverse});
-//    const OpArgsHolder<double> argsHolderBP({&inputC, &axis, &gradO}, {}, {exclusive, reverse});
-
-    nd4j::ops::cumprod<double> opFF;
-//    nd4j::ops::cumprod_bp<double> opBP;
-    auto res = opFF.execute({&inputC, &axis}, {}, {exclusive, reverse});
-//    const bool isGradCorrect = GradCheck::checkGrad(opFF, opBP, argsHolderFF, argsHolderBP);
-    ASSERT_TRUE(res->status() == ND4J_STATUS_OK);
-    res->at(0)->printIndexedBuffer("Cumulative product of 4 ints");
-//    ASSERT_TRUE(isGradCorrect);
-    delete res;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -2154,17 +2123,11 @@ TEST_F(DeclarableOpsTests9, Dynamic_Partition_BP_1) {
 
     nd4j::ops::dynamic_partition<double> op1;
     auto res1 = op1.execute({&x, &y}, {}, {3});
-    for (size_t e = 0; e < res1->size(); ++e) {
-        res1->at(e)->printIndexedBuffer("RES1");
-        res1->at(e)->printShapeInfo("RES1");
-    }
 
     nd4j::ops::dynamic_partition_bp<double> op2;
     auto res2 = op2.execute({&x, &y, res1->at(0), res1->at(1), res1->at(2)}, {}, {3});
     ASSERT_TRUE(res2->status() == ND4J_STATUS_OK);
     ASSERT_TRUE(res2->size() == 2);
-    res2->at(0)->printIndexedBuffer("PARTITION");
-    res2->at(1)->printIndexedBuffer("INDICES");
     delete res1;
     delete res2;
 }
@@ -2269,3 +2232,132 @@ TEST_F(DeclarableOpsTests9, batchnorm_bp_test3) {
     ASSERT_TRUE(isGradCorrect);
 }
 
+////////////////////////////////////////////////////////////////////
+TEST_F(DeclarableOpsTests9, gru_cell_bp_test1) {
+
+    const int bS = 2;
+    const int iS = 3;
+    const int nU = 4;
+
+    NDArray<double> x     ('c', {bS, iS});
+    NDArray<double> h0    ('c', {bS, nU});
+    NDArray<double> Wx    ('c', {iS, 3*nU});
+    NDArray<double> Wh    ('c', {nU, 3*nU});
+    NDArray<double> b     ('c', {3*nU});
+    NDArray<double> dLdh  ('c', {bS, nU});
+
+    x.linspace(0.5, 0.5);
+    h0 = 1.;
+    Wx = 0.003;
+    Wh = 0.006;
+    b  = 0.5;
+
+    const OpArgsHolder<double> argsHolderFF({&x, &h0, &Wx, &Wh, &b}, {}, {});
+    const OpArgsHolder<double> argsHolderBP({&x, &h0, &Wx, &Wh, &b, &dLdh}, {}, {});    
+
+    nd4j::ops::gruCell<double> opFF;
+    nd4j::ops::gruCell_bp<double> opBP;
+
+    const bool isGradCorrect = GradCheck::checkGrad(opFF, opBP, argsHolderFF, argsHolderBP);
+
+    ASSERT_TRUE(isGradCorrect);
+}
+
+////////////////////////////////////////////////////////////////////
+TEST_F(DeclarableOpsTests9, gru_cell_bp_test2) {
+
+    const int bS = 2;
+    const int iS = 3;
+    const int nU = 4;
+
+    NDArray<double> x     ('c', {bS, iS});
+    NDArray<double> h0    ('c', {bS, nU});
+    NDArray<double> Wx    ('c', {iS, 3*nU});
+    NDArray<double> Wh    ('c', {nU, 3*nU});
+    NDArray<double> b     ('c', {3*nU});
+    NDArray<double> dLdh  ('c', {bS, nU});
+  
+    x.linspace(0.5, 0.5);
+    h0 = 1.;
+    Wx = 0.003;
+    Wh = 0.006;
+    b  = 0.;
+
+    const OpArgsHolder<double> argsHolderFF({&x, &h0, &Wx, &Wh, &b}, {}, {});
+    const OpArgsHolder<double> argsHolderBP({&x, &h0, &Wx, &Wh, &b, &dLdh}, {}, {});    
+
+    nd4j::ops::gruCell<double> opFF;
+    nd4j::ops::gruCell_bp<double> opBP;
+
+    const bool isGradCorrect = GradCheck::checkGrad(opFF, opBP, argsHolderFF, argsHolderBP);
+
+    ASSERT_TRUE(isGradCorrect);
+}
+
+////////////////////////////////////////////////////////////////////
+TEST_F(DeclarableOpsTests9, gru_cell_bp_test3) {
+
+    const int bS = 2;
+    const int iS = 3;
+    const int nU = 4;
+
+    NDArray<double> x     ('c', {bS, iS});
+    NDArray<double> h0    ('c', {bS, nU});
+    NDArray<double> Wx    ('c', {iS, 3*nU});
+    NDArray<double> Wh    ('c', {nU, 3*nU});
+    NDArray<double> b     ('c', {3*nU});
+    NDArray<double> dLdh  ('c', {bS, nU});
+    // NDArray<double> dLdWx0('c', {iS, 3*nU});
+    // NDArray<double> dLdWh0('c', {nU, 3*nU});
+    // NDArray<double> dLdb0 ('c', {3*nU});
+
+    x = 1.;
+    h0 = 0.0;
+    Wx = 0.0;
+    Wh = 0.0;
+    b  = 0.5;
+
+    const OpArgsHolder<double> argsHolderFF({&x, &h0, &Wx, &Wh, &b}, {}, {});
+    const OpArgsHolder<double> argsHolderBP({&x, &h0, &Wx, &Wh, &b, &dLdh}, {}, {});    
+
+    nd4j::ops::gruCell<double> opFF;
+    nd4j::ops::gruCell_bp<double> opBP;
+
+    const bool isGradCorrect = GradCheck::checkGrad(opFF, opBP, argsHolderFF, argsHolderBP);
+
+    ASSERT_TRUE(isGradCorrect);
+}
+
+////////////////////////////////////////////////////////////////////
+// TEST_F(DeclarableOpsTests9, gru_bp_test1) {
+
+//     const int time = 5;
+//     const int bS   = 2;
+//     const int iS   = 3;
+//     const int nU   = 4;
+
+//     NDArray<double> x     ('c', {time, bS, iS});
+//     NDArray<double> h0    ('c', {bS, nU});
+//     NDArray<double> Wx    ('c', {iS, 3*nU});
+//     NDArray<double> Wh    ('c', {nU, 3*nU});
+//     NDArray<double> b     ('c', {3*nU});
+//     NDArray<double> dLdh  ('c', {time, bS, nU});
+
+//     x.linspace(0.5, 0.5);
+//     h0 = 1.;
+//     Wx = 0.003;
+//     Wh = 0.006;
+//     b  = 0.5;
+
+//     const OpArgsHolder<double> argsHolderFF({&x, &h0, &Wx, &Wh, &b}, {}, {});
+//     const OpArgsHolder<double> argsHolderBP({&x, &h0, &Wx, &Wh, &b, &dLdh}, {}, {});    
+
+//     nd4j::ops::gru<double> opFF;
+//     nd4j::ops::gru_bp<double> opBP;
+
+//     const bool isGradCorrect = GradCheck::checkGrad(opFF, opBP, argsHolderFF, argsHolderBP);
+
+//     ASSERT_TRUE(isGradCorrect);
+// }
+
+//  

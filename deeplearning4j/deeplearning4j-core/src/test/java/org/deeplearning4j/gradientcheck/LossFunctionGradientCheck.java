@@ -51,6 +51,8 @@ import java.util.Random;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
+import static org.nd4j.linalg.indexing.NDArrayIndex.all;
+import static org.nd4j.linalg.indexing.NDArrayIndex.point;
 
 /**
  * Created by Alex on 12/09/2016.
@@ -168,7 +170,8 @@ public class LossFunctionGradientCheck extends BaseDL4JTest {
                                 .layer(0, new DenseLayer.Builder().nIn(4).nOut(4).activation(Activation.TANH).build())
                                 .layer(1, new OutputLayer.Builder().lossFunction(lossFunctions[i])
                                                 .activation(outputActivationFn[i]).nIn(4).nOut(nOut[i]).build())
-                                .pretrain(false).backprop(true).build();
+                                .validateOutputLayerConfig(false)
+                                .build();
 
                 MultiLayerNetwork net = new MultiLayerNetwork(conf);
                 net.init();
@@ -328,7 +331,8 @@ public class LossFunctionGradientCheck extends BaseDL4JTest {
                                                 .build())
                                 .layer(1, new LossLayer.Builder().lossFunction(lossFunctions[i])
                                                 .activation(outputActivationFn[i]).build())
-                                .pretrain(false).backprop(true).build();
+                                .validateOutputLayerConfig(false)
+                                .build();
 
                 MultiLayerNetwork net = new MultiLayerNetwork(conf);
                 net.init();
@@ -409,7 +413,9 @@ public class LossFunctionGradientCheck extends BaseDL4JTest {
             case "LossKLD":
                 //KL divergence: should be a probability distribution for labels??
                 ret[1] = Nd4j.rand(labelsShape);
-                Nd4j.getExecutioner().exec(new OldSoftMax(ret[1]), 1);
+                for(int i=0; i<labelsShape[2]; i++ ) {
+                    Nd4j.getExecutioner().exec(new OldSoftMax(ret[1].get(all(), all(), point(i))), 1);
+                }
                 break;
             case "LossMCXENT":
             case "LossNegativeLogLikelihood":
@@ -573,7 +579,8 @@ public class LossFunctionGradientCheck extends BaseDL4JTest {
                                                     .build())
                                     .layer(1, new OutputLayer.Builder().lossFunction(lossFunctions[i])
                                                     .activation(outputActivationFn[i]).nIn(4).nOut(3).build())
-                                    .pretrain(false).backprop(true).build();
+                                    .validateOutputLayerConfig(false)
+                                    .build();
 
                     MultiLayerNetwork net = new MultiLayerNetwork(conf);
                     net.init();

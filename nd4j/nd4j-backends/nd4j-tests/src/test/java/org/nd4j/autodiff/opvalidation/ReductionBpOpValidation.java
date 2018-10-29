@@ -20,7 +20,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-import org.nd4j.autodiff.OpValidationSuite;
+import org.nd4j.OpValidationSuite;
 import org.nd4j.autodiff.validation.OpTestCase;
 import org.nd4j.autodiff.validation.OpValidation;
 import org.nd4j.linalg.api.buffer.DataBuffer;
@@ -669,9 +669,6 @@ public class ReductionBpOpValidation extends BaseOpValidation {
 
     @Test
     public void testCumSumBP() {
-        OpValidationSuite.ignoreFailing();
-        //CumSum is not *technically* a reduction...
-
         //Standard case, non-reverse, non-exclusive
         //dL/dIn_i  = sum_j dL/dOut_j * dOut_j/dIn_i
         //          = sum_j dL/dOut_j * d(in_0 + ... + in_j)/dIn_i
@@ -738,27 +735,6 @@ public class ReductionBpOpValidation extends BaseOpValidation {
                 assertNull(err);
             }
         }
-    }
-
-
-    @Test
-    public void testCumProdBP() {
-        OpValidationSuite.ignoreFailing();
-
-        //Standard case: non-reverse, non-exclusive
-        //dL/dIn_i  = sum_j dL/dOut_j * dOut_j/dIn_i
-        //          = sum_j dL/dOut_j * d(in_0 * ... * in_j)/dIn_i
-        //          = sum_j dL/dOut_j * prod_(k=0..j)(in_j)
-        //          = reverseCumSum( dL/dOut * cumProd(in)/in_i )
-
-        //Reverse case:
-        //dL/dIn_i  = sum_j dL/dOut_j * dOut_j/dIn_i
-        //          = sum_j dL/dOut_j * d(in_N * ... * in_j)/dIn_i
-        //          = sum_j dL/dOut_j * prod_(k=N..j)(in_j)
-        //          = cumSum( dL/dOut * reverseCumProd(in)/in_i )
-
-        //Exclusive case
-        //
     }
 
 

@@ -32,6 +32,7 @@ import org.bytedeco.javacpp.Pointer;
 import org.bytedeco.javacpp.indexer.HalfIndexer;
 import org.bytedeco.javacpp.indexer.Indexer;
 import org.nd4j.autodiff.samediff.SameDiff;
+import org.nd4j.autodiff.samediff.serde.FlatBuffersMapper;
 import org.nd4j.base.Preconditions;
 import org.nd4j.config.ND4JEnvironmentVars;
 import org.nd4j.config.ND4JSystemProperties;
@@ -57,6 +58,7 @@ import org.nd4j.linalg.api.ops.impl.indexaccum.IMax;
 import org.nd4j.linalg.api.ops.impl.indexaccum.IMin;
 import org.nd4j.linalg.api.ops.impl.shape.Diag;
 import org.nd4j.linalg.api.ops.impl.shape.DiagPart;
+import org.nd4j.linalg.api.ops.impl.shape.Stack;
 import org.nd4j.linalg.api.ops.impl.transforms.OldReverse;
 import org.nd4j.linalg.api.ops.impl.transforms.ReplaceNans;
 import org.nd4j.linalg.api.ops.random.custom.RandomExponential;
@@ -956,12 +958,13 @@ public class Nd4j {
     /** Matrix multiply: Implements c = alpha*op(a)*op(b) + beta*c where op(X) means transpose X (or not)
      * depending on setting of arguments transposeA and transposeB.<br>
      * Note that matrix c MUST be fortran order, have zero offset and have c.data().length == c.length().
-     * An exception will be thrown otherwise.<br>
+     * i.e., the result array must not be a view. An exception will be thrown otherwise.<br>
+     * (Note: some views are allowed, if and only if they have f order and are contiguous in the buffer other than an
+     * offset. Put another way, they must be f order and have strides identical to a non-view/default array of the same shape)<br>
      * Don't use this unless you know about level 3 blas and NDArray storage orders.
      * @param a First matrix
      * @param b Second matrix
-     * @param c result matrix. Used in calculation (assuming beta != 0) and result is stored in this. f order,
-     *          zero offset and length == data.length only
+     * @param c result matrix. Used in calculation (assuming beta != 0) and result is stored in this. f order, and not a view only
      * @param transposeA if true: transpose matrix a before mmul
      * @param transposeB if true: transpose matrix b before mmul
      * @return result, i.e., matrix c is returned for convenience
@@ -973,6 +976,11 @@ public class Nd4j {
                                 boolean transposeB,
                                 double alpha,
                                 double beta) {
+        //Note: some views have non-zero offset but 'default' strides (these are OK). And a 'c' order vector such as [10,1] is OK - same buffer as an 'f' order vector with same shape
+        Preconditions.checkState(c.length() == 1 || c.ordering() == 'f' && Shape.hasDefaultStridesForShape(c) ||
+                        c.isVectorOrScalar() && c.elementWiseStride() == 1,
+                "C (result) array is not F order or is a view. Nd4j.gemm requires the result array to be F order " +
+                        "and not a view. C (result) array: [%ndSInfo]", c);
         getBlasWrapper().level3().gemm(a, b, c, transposeA, transposeB, alpha, beta);
         return c;
     }
@@ -2184,14 +2192,13 @@ public class Nd4j {
             String[] data = line.trim().split(split);
             if (numColumns < 0) {
                 numColumns = data.length;
-
             } else
-                assert data.length == numColumns : "Data has inconsistent number of columns";
+                Preconditions.checkState(data.length == numColumns,
+                        "Data has inconsistent number of columns: data length %s, numColumns %s", data.length, numColumns);
             data2.add(readSplit(data));
 
 
         }
-
         ret = Nd4j.create(data2.size(), numColumns);
         for (int i = 0; i < data2.size(); i++)
             ret.putRow(i, Nd4j.create(Nd4j.createBuffer(data2.get(i))));
@@ -2322,6 +2329,8 @@ public class Nd4j {
                             e.printStackTrace();
                         }
                     } else {
+                        Preconditions.checkState(entries.length == theShape[rank-1], "Invalid number of entries - format does not match expected shape." +
+                                "Expected %s values per line, got %s at line %s", theShape[rank-1], entries.length, lineNum );
                         for (int i = 0; i < theShape[rank - 1]; i++) {
                             try {
                                 BigDecimal number = (BigDecimal) format.parse(entries[i]);
@@ -5154,6 +5163,32 @@ public class Nd4j {
     }
 
     /**
+     * Stack a set of N SDVariables of rank X into one rank X+1 variable.
+     * If inputs have shape [a,b,c] then output has shape:<br>
+     * axis = 0: [N,a,b,c]<br>
+     * axis = 1: [a,N,b,c]<br>
+     * axis = 2: [a,b,N,c]<br>
+     * axis = 3: [a,b,c,N]<br>
+     *
+     * @param axis   Axis to stack on
+     * @param values Input variables to stack. Must have the same shape for all inputs
+     * @return Output array
+     * @see #concat(int, INDArray...)
+     */
+    public static INDArray stack(int axis, INDArray... values){
+        Preconditions.checkArgument(values != null && values.length > 0, "No inputs: %s", values);
+        Preconditions.checkState(axis >= -(values[0].rank()+1) && axis < values[0].rank()+1, "Invalid axis: must be between " +
+                "%s (inclusive) and %s (exclusive) for rank %s input, got %s", -(values[0].rank()+1), values[0].rank()+1,
+                values[0].rank(), axis);
+
+        Stack stack = new Stack(values, null, axis);
+        INDArray[] outputArrays = Nd4j.getExecutioner().allocateOutputArrays(stack);
+        stack.addOutputArgument(outputArrays);
+        Nd4j.getExecutioner().exec(stack);
+        return outputArrays[0];
+    }
+
+    /**
      * Concatneate ndarrays along a dimension
      *
      * @param dimension the dimension to concatneate along
@@ -5974,6 +6009,54 @@ public class Nd4j {
         return ret;
     }
 
+    /**
+     * Similar to numpy.where operation.
+     * Supports two modes of operation:<br>
+     * (a) condition array only is provided: returns N 1d arrays of the indices where "condition" values are non-zero.
+     * Specifically, each output out has shape [numNonZero(condition)], such that in[out[0], ..., out[n-1]] is non-zero<br>
+     * (b) all 3 arrays are provided: returns {@code out[i] = (condition[i] != 0 ? x[i] : y[i])}<br>
+     * @param condition Condition array
+     * @param x         X array. If null, y must be null also.
+     * @param y         Y array. If null, x must be null also
+     * @return Either the indices where condition is non-zero (if x and y are null), or values from x/y depending on
+     * value of condition
+     */
+    public static INDArray[] where(INDArray condition, INDArray x, INDArray y){
+        Preconditions.checkState((x == null && y == null) || (x != null && y != null), "Both X and Y must be" +
+                "null, or neither must be null");
+        INDArray out;
+        DynamicCustomOp.DynamicCustomOpsBuilder op = DynamicCustomOp.builder("where_np");
+        List<long[]> outShapes;
+        if(x == null){
+            //First case: condition only...
+            op.addInputs(condition);
+        } else {
+            if(!x.equalShapes(y) || !x.equalShapes(condition)){
+                Preconditions.throwStateEx("Shapes must be equal: condition=%s, x=%s, y=%s", condition.shape(), x.shape(), y.shape());
+            }
+            op.addInputs(condition, x, y);
+        }
+        DynamicCustomOp o = op.build();
+        outShapes = Nd4j.getExecutioner().calculateOutputShape(o);
+        INDArray[] outputs = new INDArray[outShapes.size()];
+
+        if(x == null && (outShapes.get(0) == null || outShapes.get(0).length == 0 || outShapes.get(0)[0] == 0)){
+            //Empty: no conditions match
+            for( int i=0; i<outputs.length; i++ ){
+                outputs[i]  = Nd4j.empty();
+            }
+            return outputs;
+        }
+
+        for(int i=0; i<outputs.length; i++){
+            outputs[i] = Nd4j.createUninitialized(outShapes.get(i));
+        }
+        op.addOutputs(outputs);
+
+        Nd4j.getExecutioner().exec(op.build());
+        return outputs;
+    }
+
 
     /**
      * Write an {@link INDArray}
@@ -6111,8 +6194,8 @@ public class Nd4j {
         val shapeOf = Shape.shapeOf(shapeInfo);
         val stridesOf = Shape.stridesOf(shapeInfo);
 
-        val _dtype = SameDiff.getDataTypeFromByte(dtype);
-        val _order = SameDiff.getOrderFromByte(order);
+        val _dtype = FlatBuffersMapper.getDataTypeFromByte(dtype);
+        val _order = FlatBuffersMapper.getOrderFromByte(order);
         val prod = rank > 0 ? ArrayUtil.prod(shapeOf) : 1;
         val doubles = new double[prod];
 
